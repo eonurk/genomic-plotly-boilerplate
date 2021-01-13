@@ -1,0 +1,156 @@
+---
+title: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Genomics boilerplate in Plotly
+
+> _"Reproducible research is important!"_
+>
+> `r tufte::quote_footer('Every grad student at some point')`
+
+I realized copy/pasting **a lot** of code when it comes to visualization, 
+so why not keeping them somewhere I can easily reach out and plug in whenever I need them, right?   
+Right.
+
+
+
+
+Let's use a dataset from my package (because why not?)
+```{r}
+library(cinaR) # my package
+library(dplyr) # important
+library(purrr) # important
+library(plotly)# stuff
+```
+
+```{r my package rocks, cache=TRUE}
+# data, lol
+bed <- cinaR::bed
+
+# we need this
+contrasts<- c("B6", "B6", "B6", "B6", "B6", "NZO", "NZO", "NZO", "NZO", "NZO", "NZO",
+              "B6", "B6", "B6", "B6", "B6", "NZO", "NZO", "NZO", "NZO", "NZO", "NZO")
+
+# let's use my package to find some results (why NOT?)
+# if you want to learn more about it just check the package, it is all free!
+results <- cinaR(bed, contrasts, reference.genome = "mm10", DA.fdr.threshold = 1, verbose = F)
+```
+
+
+okay, let's get the results and put them into separate variables.
+```{r}
+# peaks by sample
+all.peaks <- results$DA.results$cp
+
+# differential peaks (and their info)
+da.peaks <- results$DA.results$DA.peaks$B6_NZO
+
+# enrichment of pathways (and their info)
+enrichments <- results$Enrichment.Results$B6_NZO
+
+# color values I like
+colors <- cinaR::color_values
+```
+
+## Good stuff
+
+Just check this mice data with your mouse (what a bad joke!)
+
+### Volcano plot
+```{r}
+volcano.fig <- plot_ly(da.peaks, 
+        x = ~logFC, y = ~-log(FDR), type = 'scatter',
+        hoverinfo = "text", color = ~ifelse(FDR < 0.01, "DA", "Non-DA"), colors = c("red", "darkblue"),
+        text = ~paste('</br> Gene Name: ', ifelse(is.na(gene_name), transcriptId, gene_name),
+                      '</br> FDR: ', sprintf("%0.2g", FDR),
+                      '</br> log(FC): ', sprintf("%2.2f", logFC)
+                    )
+      )
+
+volcano.fig <- volcano.fig %>% 
+    config(displayModeBar = FALSE) %>%  # no band 
+    layout(xaxis = list(range = c(-6, 6))) %>% # make it centered
+    toWebGL() # print to canvas to make it faster
+
+volcano.fig
+```
+
+### Box plot
+```{r}
+# select Kif11 peak: chr19_37374896_37377150
+kif11.peak <- all.peaks["chr19_37374896_37377150",]
+
+# create cute df
+df.plot <- data.frame(exp = as.numeric(kif11.peak), contrasts = contrasts, row.names = NULL, stringsAsFactors = FALSE)
+
+boxplot.fig <- plot_ly(df.plot, 
+        x = ~contrasts, y = ~exp, 
+        type = 'box', color = ~contrasts
+      )
+
+boxplot.fig <- boxplot.fig %>% 
+    config(displayModeBar = FALSE) %>%  # no band 
+    layout(title = "Kif11 accesibility levels",
+           xaxis = list(title = "Strain"),
+           yaxis = list(title = "log(cpm)")) %>% 
+    toWebGL()  # print to canvas to make it faster
+
+boxplot.fig
+```
+
+### Dot plot
+```{r}
+dot.fig <- plot_ly(enrichments, 
+                   x = "B6 vs NZO", y = ~module.name, size = ~ifelse(adj.p == 1, NA, -log(adj.p)), 
+                   type = 'scatter', color = ~ status, colors = color_values,
+                   hoverinfo = 'text',
+                   text = ~paste(
+                       '</br> Pathway: ', module.name,
+                       '</br> FDR: ', sprintf('%1.2g', adj.p),
+                       '</br> Status: ', status,
+                       '</br> Overlapping genes: ', overlapping.genes
+                   )
+)
+
+dot.fig
+```
+
+### Heatmap
+For heatmaps there is a package called `heatmaply` which is a wrapper over `plotly` itself
+```{r}
+library(heatmaply)
+
+# select myeloid genes
+selected.genes <- vp2008$`Myeloid lineage 2`
+
+# find their chr_start_end
+selected.genes.loc <- da.peaks[toupper(da.peaks$gene_name) %in% selected.genes, c("Row.names", "gene_name")]
+
+locs <- selected.genes.loc$Row.names
+
+# ready!
+pheatmap.data <- all.peaks[locs,]
+
+rownames(pheatmap.data) <- selected.genes.loc$gene_name
+
+# go
+heatmaply(pheatmap.data, scale = "row", 
+          scale_fill_gradient_fun = 
+            ggplot2::scale_fill_gradient2(
+              low = color_values["Closing"], 
+              high = color_values["Opening"], 
+              midpoint = 0
+            )
+)
+```
+
+> _"This might not be very reproducible!"_
+>
+> `r tufte::quote_footer('Every grad student at some point')`
+
+
